@@ -1,0 +1,93 @@
+# LiteLLM proxy configuration.
+#
+# The proxy is the single egress point for model traffic. Everything the
+# platform calls is a *logical* name here (self-hosted-llama-70b), mapped to a
+# concrete deployment. Swapping a provider is a config change, not a code change.
+
+model_list:
+  # ------------------------------------------------------- self-hosted (vLLM)
+  - model_name: self-hosted-llama-70b
+    litellm_params:
+      model: openai/llama-3.3-70b-instruct
+      api_base: os.environ/VLLM_70B_BASE_URL
+      api_key: os.environ/VLLM_API_KEY
+      rpm: 1200
+      tpm: 900000
+    model_info:
+      deployment: self_hosted
+      max_input_tokens: 128000
+      input_cost_per_token: 0.0000004
+      output_cost_per_token: 0.0000008
+
+  - model_name: self-hosted-llama-8b
+    litellm_params:
+      model: openai/llama-3.1-8b-instruct
+      api_base: os.environ/VLLM_8B_BASE_URL
+      api_key: os.environ/VLLM_API_KEY
+      rpm: 6000
+      tpm: 3000000
+    model_info:
+      deployment: self_hosted
+      input_cost_per_token: 0.00000006
+      output_cost_per_token: 0.00000012
+
+  # ------------------------------------------------ self-hosted (TEI) vectors
+  - model_name: self-hosted-bge-large
+    litellm_params:
+      model: openai/bge-large-en-v1.5
+      api_base: os.environ/TEI_EMBEDDING_BASE_URL
+      api_key: os.environ/TEI_API_KEY
+    model_info:
+      mode: embedding
+      deployment: self_hosted
+      output_vector_size: 1024
+
+  # ------------------------------------------------------------ third party
+  - model_name: bedrock-claude
+    litellm_params:
+      model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+      aws_region_name: os.environ/AWS_REGION
+    model_info:
+      deployment: third_party
+
+  - model_name: azure-gpt-4o
+    litellm_params:
+      model: azure/gpt-4o
+      api_base: os.environ/AZURE_OPENAI_ENDPOINT
+      api_key: os.environ/AZURE_OPENAI_API_KEY
+      api_version: "2024-10-21"
+    model_info:
+      deployment: third_party
+
+router_settings:
+  routing_strategy: latency-based-routing
+  num_retries: 2
+  timeout: 45
+  allowed_fails: 3
+  cooldown_time: 30
+  # Self-hosted first. Third-party only when the internal fleet is unavailable,
+  # which keeps both spend and data residency under control.
+  fallbacks:
+    - self-hosted-llama-70b: [bedrock-claude, azure-gpt-4o]
+    - self-hosted-llama-8b: [self-hosted-llama-70b]
+  context_window_fallbacks:
+    - self-hosted-llama-8b: [self-hosted-llama-70b, bedrock-claude]
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  request_timeout: 45
+  telemetry: false
+  json_logs: true
+  success_callback: ["prometheus"]
+  failure_callback: ["prometheus"]
+  # Redaction happens in-process before the call, but belt and braces.
+  turn_off_message_logging: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: false
+  disable_spend_logs: false
+  max_parallel_requests: 200
+  health_check_interval: 60

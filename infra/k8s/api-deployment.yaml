@@ -1,0 +1,130 @@
+# API tier. Sized for chat traffic: mostly I/O-bound waiting on model calls,
+# so concurrency matters more than CPU. HPA scales on p95 latency, not CPU,
+# because a saturated agent tier shows up as latency long before CPU moves.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: banking-agent-api
+  namespace: agentic-banking
+  labels: { app: banking-agent-api, tier: api }
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels: { app: banking-agent-api }
+  template:
+    metadata:
+      labels: { app: banking-agent-api, tier: api }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: banking-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: banking-agent-api }
+      containers:
+        - name: api
+          image: registry.bank.internal/agentic-banking-platform:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8000 }
+          envFrom:
+            - configMapRef: { name: banking-agent-config }
+            - secretRef: { name: banking-agent-secrets }
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits: { cpu: "2000m", memory: "3Gi" }
+          # Startup probe covers the slow path: MCP connect + graph compile.
+          startupProbe:
+            httpGet: { path: /live, port: http }
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /live, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                # Let the LB drain before the process starts refusing.
+                command: ["sh", "-c", "sleep 10"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 512Mi }
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: banking-agent-api
+  namespace: agentic-banking
+spec:
+  selector: { app: banking-agent-api }
+  ports:
+    - { name: http, port: 80, targetPort: 8000 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: banking-agent-api
+  namespace: agentic-banking
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: banking-agent-api
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+    - type: Pods
+      pods:
+        metric: { name: http_requests_in_flight }
+        target: { type: AverageValue, averageValue: "20" }
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies: [{ type: Percent, value: 100, periodSeconds: 30 }]
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies: [{ type: Percent, value: 25, periodSeconds: 60 }]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: banking-agent-api
+  namespace: agentic-banking
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: banking-agent-api }

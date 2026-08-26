@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: banking-agent-config
+  namespace: agentic-banking
+data:
+  ENVIRONMENT: "prod"
+  LOG_LEVEL: "INFO"
+  LOG_JSON: "true"
+  DEV_AUTH_BYPASS: "false"
+  API_PREFIX: "/api/v1"
+
+  OIDC_ISSUER: "https://identity.bank.internal"
+  OIDC_AUDIENCE: "agentic-banking-platform"
+  OIDC_JWKS_URL: "https://identity.bank.internal/.well-known/jwks.json"
+
+  OPENSEARCH_HOSTS: '["https://opensearch.agentic-banking.svc.cluster.local:9200"]'
+  OPENSEARCH_INDEX_ALIAS: "kb-chunks"
+  OPENSEARCH_VERIFY_CERTS: "true"
+
+  S3_RAW_BUCKET: "bank-prod-raw-documents"
+  S3_PROCESSED_BUCKET: "bank-prod-processed-documents"
+  S3_REGION: "us-east-1"
+
+  LITELLM_BASE_URL: "http://litellm.agentic-banking.svc.cluster.local:4000"
+  PRIMARY_MODEL: "self-hosted-llama-70b"
+  ROUTER_MODEL: "self-hosted-llama-8b"
+  EMBEDDING_MODEL: "self-hosted-bge-large"
+  EMBEDDING_DIMENSIONS: "1024"
+
+  MCP_ACCOUNTS_URL: "http://mcp-accounts.agentic-banking.svc.cluster.local:8081/mcp"
+  MCP_TRANSACTIONS_URL: "http://mcp-transactions.agentic-banking.svc.cluster.local:8082/mcp"
+  MCP_SERVICE_URL: "http://mcp-service.agentic-banking.svc.cluster.local:8083/mcp"
+
+  CHECKPOINTER: "postgres"
+  ENABLE_HUMAN_IN_THE_LOOP: "true"
+  AGENT_MAX_TOOL_CALLS: "8"
+
+  PII_REDACTION_ENABLED: "true"
+  PII_REDACTION_BACKEND: "presidio"
+  REDACT_OUTBOUND_TO_THIRD_PARTY_LLM: "true"
+
+  OTEL_ENABLED: "true"
+  OTEL_ENDPOINT: "http://otel-collector.agentic-banking.svc.cluster.local:4317"
+  COST_TRACKING_ENABLED: "true"
+  COST_ALERT_DAILY_USD: "2000"
+  EVAL_ENABLED: "true"
+  EVAL_SAMPLE_RATE: "0.05"
+---
+# Secrets come from an external secret manager. This is the reference, not
+# the values -- never commit real credentials.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: banking-agent-secrets
+  namespace: agentic-banking
+spec:
+  refreshInterval: 1h
+  secretStoreRef: { name: vault-backend, kind: ClusterSecretStore }
+  target: { name: banking-agent-secrets }
+  data:
+    - { secretKey: POSTGRES_DSN,        remoteRef: { key: agentic-banking/db,      property: async_dsn } }
+    - { secretKey: POSTGRES_SYNC_DSN,   remoteRef: { key: agentic-banking/db,      property: sync_dsn } }
+    - { secretKey: REDIS_DSN,           remoteRef: { key: agentic-banking/redis,   property: dsn } }
+    - { secretKey: OPENSEARCH_USER,     remoteRef: { key: agentic-banking/search,  property: username } }
+    - { secretKey: OPENSEARCH_PASSWORD, remoteRef: { key: agentic-banking/search,  property: password } }
+    - { secretKey: LITELLM_MASTER_KEY,  remoteRef: { key: agentic-banking/litellm, property: master_key } }
+    - { secretKey: S3_SSE_KMS_KEY_ID,   remoteRef: { key: agentic-banking/s3,      property: kms_key_id } }

@@ -1,0 +1,78 @@
+{
+  "index_patterns": ["kb-chunks-v*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": 3,
+        "number_of_replicas": 1,
+        "refresh_interval": "5s",
+        "knn": true,
+        "knn.algo_param.ef_search": 128
+      },
+      "analysis": {
+        "filter": {
+          "english_stop": { "type": "stop", "stopwords": "_english_" },
+          "english_stemmer": { "type": "stemmer", "language": "english" },
+          "banking_synonyms": {
+            "type": "synonym_graph",
+            "synonyms": [
+              "chequebook, cheque book, checkbook, check book",
+              "statement, e-statement, account statement",
+              "kyc, know your customer, identity verification",
+              "balance, available balance, account balance",
+              "address, residential address, mailing address"
+            ]
+          }
+        },
+        "analyzer": {
+          "banking_text": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": ["lowercase", "banking_synonyms", "english_stop", "english_stemmer"]
+          }
+        }
+      }
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "chunk_id": { "type": "keyword" },
+        "document_id": { "type": "keyword" },
+        "tenant_id": { "type": "keyword" },
+        "chunk_index": { "type": "integer" },
+        "content": {
+          "type": "text",
+          "analyzer": "banking_text",
+          "fields": { "keyword": { "type": "keyword", "ignore_above": 2048 } }
+        },
+        "content_sha256": { "type": "keyword" },
+        "title": { "type": "text", "analyzer": "banking_text" },
+        "heading": { "type": "text", "analyzer": "banking_text" },
+        "section_path": { "type": "keyword" },
+        "filename": { "type": "keyword" },
+        "page_number": { "type": "integer" },
+        "token_count": { "type": "integer" },
+        "classification": { "type": "keyword" },
+        "doc_type": { "type": "keyword" },
+        "language": { "type": "keyword" },
+        "source_uri": { "type": "keyword" },
+        "tags": { "type": "keyword" },
+        "effective_from": { "type": "date" },
+        "effective_to": { "type": "date" },
+        "created_at": { "type": "date" },
+        "embedding_model": { "type": "keyword" },
+        "embedding": {
+          "type": "knn_vector",
+          "dimension": 1024,
+          "method": {
+            "name": "hnsw",
+            "space_type": "cosinesimil",
+            "engine": "lucene",
+            "parameters": { "m": 16, "ef_construction": 256 }
+          }
+        }
+      }
+    }
+  }
+}

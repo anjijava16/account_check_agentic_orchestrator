@@ -1,0 +1,64 @@
+# Default-deny with explicit allows. The important line is the last policy:
+# only the MCP tier may reach core banking, so a compromised agent pod cannot
+# talk to the systems of record directly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: agentic-banking
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-egress
+  namespace: agentic-banking
+spec:
+  podSelector: { matchLabels: { tier: api } }
+  policyTypes: [Egress]
+  egress:
+    - to: [{ podSelector: { matchLabels: { tier: mcp } } }]
+    - to: [{ podSelector: { matchLabels: { app: postgres } } }]
+      ports: [{ protocol: TCP, port: 5432 }]
+    - to: [{ podSelector: { matchLabels: { app: redis } } }]
+      ports: [{ protocol: TCP, port: 6379 }]
+    - to: [{ podSelector: { matchLabels: { app: opensearch } } }]
+      ports: [{ protocol: TCP, port: 9200 }]
+    - to: [{ podSelector: { matchLabels: { app: litellm } } }]
+      ports: [{ protocol: TCP, port: 4000 }]
+    - to: [{ podSelector: { matchLabels: { app: otel-collector } } }]
+      ports: [{ protocol: TCP, port: 4317 }]
+    - to: [{ namespaceSelector: { matchLabels: { name: kube-system } } }]
+      ports: [{ protocol: UDP, port: 53 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-ingress
+  namespace: agentic-banking
+spec:
+  podSelector: { matchLabels: { tier: api } }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ namespaceSelector: { matchLabels: { name: ingress-nginx } } }]
+      ports: [{ protocol: TCP, port: 8000 }]
+    - from: [{ namespaceSelector: { matchLabels: { name: monitoring } } }]
+      ports: [{ protocol: TCP, port: 8000 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp-to-core-banking-only
+  namespace: agentic-banking
+spec:
+  podSelector: { matchLabels: { tier: mcp } }
+  policyTypes: [Egress]
+  egress:
+    - to: [{ ipBlock: { cidr: 10.50.0.0/16 } }]   # core banking VPC
+      ports: [{ protocol: TCP, port: 443 }]
+    - to: [{ podSelector: { matchLabels: { app: opensearch } } }]
+      ports: [{ protocol: TCP, port: 9200 }]
+    - to: [{ namespaceSelector: { matchLabels: { name: kube-system } } }]
+      ports: [{ protocol: UDP, port: 53 }]

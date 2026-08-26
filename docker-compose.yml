@@ -1,0 +1,221 @@
+name: agentic-banking-platform
+
+x-app-env: &app-env
+  ENVIRONMENT: local
+  LOG_LEVEL: INFO
+  LOG_JSON: "false"
+  POSTGRES_DSN: postgresql+asyncpg://banking:banking@postgres:5432/banking
+  POSTGRES_SYNC_DSN: postgresql+psycopg://banking:banking@postgres:5432/banking
+  REDIS_DSN: redis://redis:6379/0
+  OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+  OPENSEARCH_USER: ""
+  OPENSEARCH_PASSWORD: ""
+  S3_ENDPOINT_URL: http://minio:9000
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  LITELLM_BASE_URL: http://litellm:4000
+  LITELLM_MASTER_KEY: sk-local-master-key
+  MCP_ACCOUNTS_URL: http://mcp-accounts:8081/mcp
+  MCP_TRANSACTIONS_URL: http://mcp-transactions:8082/mcp
+  MCP_SERVICE_URL: http://mcp-service:8083/mcp
+  OTEL_ENABLED: "true"
+  OTEL_ENDPOINT: http://otel-collector:4317
+  DEV_AUTH_BYPASS: "true"
+
+services:
+  # ------------------------------------------------------------- datastores
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: banking
+      POSTGRES_PASSWORD: banking
+      POSTGRES_DB: banking
+    command: >
+      postgres -c max_connections=200 -c shared_buffers=512MB
+               -c work_mem=16MB -c maintenance_work_mem=256MB
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banking -d banking"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    command: >
+      redis-server --appendonly yes --maxmemory 1gb
+                   --maxmemory-policy allkeys-lru --save 900 1
+    ports: ["6379:6379"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  opensearch:
+    image: opensearchproject/opensearch:2.17.1
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    ports: ["9200:9200"]
+    volumes:
+      - osdata:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.17.1
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+    ports: ["5601:5601"]
+    depends_on:
+      opensearch: { condition: service_healthy }
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # ------------------------------------------------------------ model layer
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "2"]
+    environment:
+      LITELLM_MASTER_KEY: sk-local-master-key
+      DATABASE_URL: postgresql://banking:banking@postgres:5432/banking
+      STORE_MODEL_IN_DB: "false"
+    ports: ["4000:4000"]
+    volumes:
+      - ./infra/litellm/config.yaml:/app/config.yaml:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # -------------------------------------------------------- MCP tool servers
+  mcp-accounts:
+    build: { context: ., dockerfile: Dockerfile.mcp }
+    environment:
+      <<: *app-env
+      MCP_SERVER_MODULE: app.mcp.servers.accounts_server
+    ports: ["8081:8081"]
+
+  mcp-transactions:
+    build: { context: ., dockerfile: Dockerfile.mcp }
+    environment:
+      <<: *app-env
+      MCP_SERVER_MODULE: app.mcp.servers.transactions_server
+    ports: ["8082:8082"]
+
+  mcp-service:
+    build: { context: ., dockerfile: Dockerfile.mcp }
+    environment:
+      <<: *app-env
+      MCP_SERVER_MODULE: app.mcp.servers.service_server
+    ports: ["8083:8083"]
+    depends_on:
+      opensearch: { condition: service_healthy }
+
+  # ------------------------------------------------------------ application
+  migrate:
+    build: { context: ., dockerfile: Dockerfile }
+    environment: *app-env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    build: { context: ., dockerfile: Dockerfile }
+    environment: *app-env
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      opensearch: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: { context: ., dockerfile: Dockerfile }
+    environment: *app-env
+    command: ["arq", "app.workers.worker.WorkerSettings"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      opensearch: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      replicas: 2
+
+  # ---------------------------------------------------------- observability
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.113.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./infra/otel-collector.yaml:/etc/otel/config.yaml:ro
+    ports: ["4317:4317", "4318:4318", "8889:8889"]
+    depends_on: [jaeger]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports: ["16686:16686"]
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    ports: ["9090:9090"]
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports: ["3000:3000"]
+    volumes:
+      - ./infra/grafana:/etc/grafana/provisioning:ro
+      - grafanadata:/var/lib/grafana
+    depends_on: [prometheus]
+
+volumes:
+  pgdata:
+  redisdata:
+  osdata:
+  miniodata:
+  promdata:
+  grafanadata:

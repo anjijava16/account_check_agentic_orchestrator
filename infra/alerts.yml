@@ -1,0 +1,68 @@
+# Alert rules. Every one of these has a runbook entry in docs/RUNBOOK.md.
+groups:
+  - name: agent-platform
+    interval: 30s
+    rules:
+      - alert: HighChatLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{route="/api/v1/chat"}[5m])) by (le)) > 8
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Chat p95 latency above 8s"
+          runbook: "docs/RUNBOOK.md#high-chat-latency"
+
+      - alert: LLMErrorRateHigh
+        expr: sum(rate(llm_errors_total[5m])) / sum(rate(llm_tokens_total[5m])) > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "LLM error rate above 5% -- check gateway fallbacks"
+
+      - alert: DailySpendApproachingBudget
+        expr: sum(increase(llm_cost_usd_total[24h])) > 400
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "24h model spend above $400 against a $500 budget"
+
+      - alert: ThirdPartyTrafficSpike
+        expr: sum(rate(llm_tokens_total{model=~".*(bedrock|azure).*"}[15m])) / sum(rate(llm_tokens_total[15m])) > 0.3
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: ">30% of tokens going to third-party models; self-hosted fleet may be down"
+
+      - alert: IngestionQueueBacklog
+        expr: ingestion_queue_depth > 500
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Ingestion backlog above 500 jobs -- scale workers"
+
+      - alert: IngestionFailureRate
+        expr: sum(rate(ingestion_documents_total{status="failed"}[30m])) / sum(rate(ingestion_documents_total[30m])) > 0.1
+        for: 15m
+        labels: { severity: critical }
+        annotations:
+          summary: "More than 10% of ingests failing"
+
+      - alert: MCPToolErrors
+        expr: sum by (server) (rate(mcp_tool_calls_total{status="error"}[5m])) > 1
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "MCP server {{ $labels.server }} erroring -- agents will degrade"
+
+      - alert: GuardrailTripSpike
+        expr: sum(rate(guardrail_trips_total{kind="tool_coercion"}[10m])) > 0.5
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Sustained tool-coercion attempts -- possible active attack"
+
+      - alert: RetrievalDegraded
+        expr: histogram_quantile(0.95, sum(rate(retrieval_duration_seconds_bucket[5m])) by (le)) > 3
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Retrieval p95 above 3s -- check OpenSearch cluster health"

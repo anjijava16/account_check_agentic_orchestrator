@@ -1,0 +1,56 @@
+receivers:
+  otlp:
+    protocols:
+      grpc: { endpoint: 0.0.0.0:4317 }
+      http: { endpoint: 0.0.0.0:4318 }
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+  memory_limiter:
+    check_interval: 5s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  # Defence in depth: strip anything that looks like PII if it reached a span.
+  attributes/redact:
+    actions:
+      - key: llm.prompt
+        action: delete
+      - key: llm.completion
+        action: delete
+      - key: db.statement
+        action: delete
+  # Keep all errors and slow traces; sample the boring successful ones.
+  tail_sampling:
+    decision_wait: 10s
+    policies:
+      - name: errors
+        type: status_code
+        status_code: { status_codes: [ERROR] }
+      - name: slow
+        type: latency
+        latency: { threshold_ms: 3000 }
+      - name: baseline
+        type: probabilistic
+        probabilistic: { sampling_percentage: 10 }
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls: { insecure: true }
+  prometheus:
+    endpoint: 0.0.0.0:8889
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, tail_sampling, batch]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]

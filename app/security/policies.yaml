@@ -1,0 +1,58 @@
+# Authorisation policy. Hot-reloadable: edit and restart the API pods.
+# Keep this file under change control -- it is the effective blast radius of
+# a prompt-injection that reaches the tool layer.
+roles:
+  customer:
+    max_classification: confidential
+    own_data_only: true
+    intents:
+      - balance_enquiry
+      - transaction_details
+      - statement_request
+      - change_of_address
+      - cheque_book_request
+      - kyc_update
+      - knowledge_lookup
+      - small_talk
+    tools:
+      - accounts__get_balance
+      - accounts__list_accounts
+      - accounts__get_account_details
+      - transactions__search_transactions
+      - transactions__get_transaction
+      - transactions__request_statement
+      - service__update_address
+      - service__request_cheque_book
+      - service__start_kyc_update
+      - service__search_knowledge_base
+
+  premier_customer:
+    max_classification: confidential
+    own_data_only: true
+    intents:
+      - balance_enquiry
+      - transaction_details
+      - statement_request
+      - change_of_address
+      - cheque_book_request
+      - kyc_update
+      - knowledge_lookup
+      - small_talk
+    tools:
+      - "accounts__*"
+      - "transactions__*"
+      - "service__*"
+
+  agent_operator:      # contact-centre staff acting on behalf of a customer
+    max_classification: restricted
+    own_data_only: false
+    intents: ["*"]
+    tools: ["*"]
+
+  auditor:             # read-only, knowledge base only, no customer data
+    max_classification: restricted
+    own_data_only: false
+    intents:
+      - knowledge_lookup
+    tools:
+      - service__search_knowledge_base

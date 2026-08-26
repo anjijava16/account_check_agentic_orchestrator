@@ -1,0 +1,65 @@
+# ---- API / runtime -------------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+gunicorn==23.0.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-multipart==0.0.20
+sse-starlette==2.2.1
+httpx==0.28.1
+tenacity==9.0.0
+orjson==3.10.13
+
+# ---- Agent core ----------------------------------------------------------
+langgraph==0.2.60
+langgraph-checkpoint-postgres==2.0.9
+langchain-core==0.3.28
+langchain-text-splitters==0.3.4
+
+# ---- Model gateway -------------------------------------------------------
+litellm==1.57.0
+
+# ---- MCP -----------------------------------------------------------------
+mcp==1.2.0
+fastmcp==0.4.1
+
+# ---- Data ----------------------------------------------------------------
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+psycopg[binary,pool]==3.2.3
+pgvector==0.3.6
+alembic==1.14.0
+redis==5.2.1
+opensearch-py==2.8.0
+boto3==1.35.90
+
+# ---- Ingestion -----------------------------------------------------------
+docling==2.14.0
+pypdf==5.1.0
+python-docx==1.1.2
+arq==0.26.1
+
+# ---- Observability -------------------------------------------------------
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-exporter-otlp-proto-grpc==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-instrumentation-httpx==0.50b0
+opentelemetry-instrumentation-redis==0.50b0
+opentelemetry-instrumentation-sqlalchemy==0.50b0
+prometheus-client==0.21.1
+structlog==24.4.0
+
+# ---- Security / guardrails ----------------------------------------------
+pyjwt[crypto]==2.10.1
+presidio-analyzer==2.2.355
+presidio-anonymizer==2.2.355
+
+# ---- Testing -------------------------------------------------------------
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-cov==6.0.0
+respx==0.22.0
+freezegun==1.5.1
+ruff==0.8.4
+mypy==1.14.0

@@ -1,0 +1,19 @@
+# Image for the three MCP tool servers. Same base, different entrypoint --
+# the server is selected by MCP_SERVER_MODULE at run time.
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential libpq5 curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r banking && useradd -r -g banking -u 10001 banking
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY app ./app
+RUN pip install --no-cache-dir . && chown -R banking:banking /app
+
+USER banking
+ENV MCP_SERVER_MODULE=app.mcp.servers.accounts_server
+CMD ["sh", "-c", "python -m ${MCP_SERVER_MODULE}"]

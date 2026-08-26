@@ -1,0 +1,115 @@
+# MCP tool servers. Deployed separately from the agent tier on purpose:
+#   * they scale on tool-call volume, not chat volume
+#   * they hold the credentials for core banking, and nothing else does
+#   * a bad agent deploy can't take the tool layer down with it
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-accounts
+  namespace: agentic-banking
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: mcp-accounts } }
+  template:
+    metadata:
+      labels: { app: mcp-accounts, tier: mcp }
+    spec:
+      serviceAccountName: mcp-server
+      containers:
+        - name: server
+          image: registry.bank.internal/agentic-banking-mcp:1.0.0
+          env:
+            - { name: MCP_SERVER_MODULE, value: app.mcp.servers.accounts_server }
+          envFrom:
+            - configMapRef: { name: banking-agent-config }
+            - secretRef: { name: core-banking-credentials }
+          ports: [{ name: http, containerPort: 8081 }]
+          resources:
+            requests: { cpu: "200m", memory: "512Mi" }
+            limits: { cpu: "1000m", memory: "1Gi" }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-accounts
+  namespace: agentic-banking
+spec:
+  selector: { app: mcp-accounts }
+  ports: [{ port: 8081, targetPort: 8081 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-transactions
+  namespace: agentic-banking
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: mcp-transactions } }
+  template:
+    metadata:
+      labels: { app: mcp-transactions, tier: mcp }
+    spec:
+      serviceAccountName: mcp-server
+      containers:
+        - name: server
+          image: registry.bank.internal/agentic-banking-mcp:1.0.0
+          env:
+            - { name: MCP_SERVER_MODULE, value: app.mcp.servers.transactions_server }
+          envFrom:
+            - configMapRef: { name: banking-agent-config }
+            - secretRef: { name: core-banking-credentials }
+          ports: [{ name: http, containerPort: 8082 }]
+          resources:
+            requests: { cpu: "200m", memory: "512Mi" }
+            limits: { cpu: "1000m", memory: "1Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-transactions
+  namespace: agentic-banking
+spec:
+  selector: { app: mcp-transactions }
+  ports: [{ port: 8082, targetPort: 8082 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-service
+  namespace: agentic-banking
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: mcp-service } }
+  template:
+    metadata:
+      labels: { app: mcp-service, tier: mcp }
+    spec:
+      serviceAccountName: mcp-server
+      containers:
+        - name: server
+          image: registry.bank.internal/agentic-banking-mcp:1.0.0
+          env:
+            - { name: MCP_SERVER_MODULE, value: app.mcp.servers.service_server }
+          envFrom:
+            - configMapRef: { name: banking-agent-config }
+            - secretRef: { name: core-banking-credentials }
+          ports: [{ name: http, containerPort: 8083 }]
+          resources:
+            # This one also runs knowledge-base search, so it needs more room.
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits: { cpu: "2000m", memory: "2Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-service
+  namespace: agentic-banking
+spec:
+  selector: { app: mcp-service }
+  ports: [{ port: 8083, targetPort: 8083 }]
