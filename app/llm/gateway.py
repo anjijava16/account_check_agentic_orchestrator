@@ -74,7 +74,11 @@ class LLMGateway:
                 timeout=settings.llm_timeout_seconds,
                 allowed_fails=3,
                 cooldown_time=30,
-                fallbacks=[{settings.primary_model: settings.fallback_models}],
+                fallbacks=(
+                    [{settings.primary_model: settings.fallback_models}]
+                    if settings.fallback_models
+                    else []
+                ),
                 enable_pre_call_checks=True,
                 cache_responses=False,
             )

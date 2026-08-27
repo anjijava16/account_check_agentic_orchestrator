@@ -88,9 +88,9 @@ class AppSettings(BaseSettings):
     # -------------------------------------------------------------- litellm
     litellm_base_url: str = "http://localhost:4000"
     litellm_master_key: str = "sk-local-master-key"
-    primary_model: str = "self-hosted-llama-70b"
-    fallback_models: list[str] = ["bedrock-claude", "azure-gpt-4o"]
-    router_model: str = "self-hosted-llama-8b"
+    primary_model: str = "openai-gpt-4.1"
+    fallback_models: list[str] = []
+    router_model: str = "openai-gpt-4.1"
     embedding_model: str = "self-hosted-bge-large"
     embedding_dimensions: int = 1024
     llm_timeout_seconds: int = 45

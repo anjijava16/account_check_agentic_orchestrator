@@ -107,6 +107,16 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         output_cost_per_1k=0.01,
         data_classification_max="confidential",
     ),
+    "openai-gpt-4.1": ModelSpec(
+        name="openai-gpt-4.1",
+        litellm_model="openai/gpt-4.1",
+        deployment="third_party",
+        provider="openai",
+        context_window=128_000,
+        input_cost_per_1k=0.002,
+        output_cost_per_1k=0.008,
+        data_classification_max="confidential",
+    ),
 }
 
 
@@ -147,10 +157,7 @@ def select_model(classification: str = "internal", *, prefer_cheap: bool = False
     ]
     if not candidates:
         return settings.primary_model
-    candidates.sort(key=lambda s: (s.deployment != "self_hosted", s.input_cost_per_1k))
-    if prefer_cheap:
-        return candidates[0].name
-    for spec in candidates:
-        if spec.name == settings.primary_model:
-            return spec.name
+    # The configured primary model wins whenever it may see the data; only then
+    # do we fall back to cheapest-first ordering.
+    candidates.sort(key=lambda s: (s.name != settings.primary_model, s.input_cost_per_1k))
     return candidates[0].name

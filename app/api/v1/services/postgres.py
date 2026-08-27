@@ -10,12 +10,15 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
+import app.db.models  # noqa: F401  -- ensure all ORM tables are registered on Base.metadata
 from app.api.deps import PrincipalDep, require_role
 from app.core.constants import DocumentStatus
 from app.core.logging import get_logger
+from app.db.base import Base
 from app.db.repositories.documents import DocumentRepository
 from app.db.session import session_scope
 
@@ -150,3 +153,80 @@ async def delete_document(document_id: str, principal: PrincipalDep) -> dict[str
         if not deleted:
             raise HTTPException(status_code=404, detail="Document not found")
         return {"id": document_id, "deleted": True}
+
+
+def _resolve_table(table_name: str) -> Any:
+    """Resolve a caller-supplied name against the ORM metadata allowlist.
+
+    Only tables registered on ``Base.metadata`` can be reached, so there is no
+    way to name an arbitrary relation and no string interpolation into SQL.
+    """
+    table = Base.metadata.tables.get(f"{Base.metadata.schema}.{table_name}")
+    if table is None:
+        known = sorted(t.split(".", 1)[-1] for t in Base.metadata.tables)
+        raise HTTPException(
+            status_code=404,
+            detail={"error": f"Unknown table '{table_name}'", "available_tables": known},
+        )
+    return table
+
+
+def _coerce_pk(column: Any, raw: str) -> Any:
+    """Cast the string path parameter to the primary key's Python type."""
+    py_type = getattr(column.type, "python_type", str)
+    try:
+        if py_type is uuid.UUID:
+            return uuid.UUID(raw)
+        if py_type is int:
+            return int(raw)
+        if py_type is bool:
+            return raw.lower() in {"1", "true", "yes"}
+        return raw
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Value '{raw}' is not valid for primary key '{column.name}'",
+        ) from exc
+
+
+@router.get(
+    "/tables/{table_name}/records/{primary_key}",
+    summary="Fetch records from a table by primary key",
+)
+async def get_records_by_primary_key(
+    principal: PrincipalDep,
+    table_name: Annotated[str, Path(description="Registered table name (without schema)")],
+    primary_key: Annotated[str, Path(description="Primary key value to look up")],
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> dict[str, Any]:
+    table = _resolve_table(table_name)
+
+    pk_columns = list(table.primary_key.columns)
+    if len(pk_columns) != 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Table '{table_name}' does not have a single-column primary key",
+        )
+    pk_column = pk_columns[0]
+    pk_value = _coerce_pk(pk_column, primary_key)
+
+    stmt = select(table).where(pk_column == pk_value)
+    # Scope to the caller's tenant when the table carries a tenant_id column.
+    if "tenant_id" in table.c:
+        stmt = stmt.where(table.c.tenant_id == principal.tenant_id)
+    stmt = stmt.limit(limit)
+
+    async with session_scope() as session:
+        result = await session.execute(stmt)
+        rows = result.mappings().all()
+
+    records = [{k: (str(v) if isinstance(v, uuid.UUID) else v) for k, v in row.items()} for row in rows]
+    if not records:
+        raise HTTPException(status_code=404, detail="No records found")
+    return {
+        "table": table_name,
+        "primary_key": pk_column.name,
+        "value": primary_key,
+        "count": len(records),
+        "records": records,
+    }
