@@ -16,11 +16,13 @@ x-app-env: &app-env
   S3_SSE_ENABLED: "false"
   LITELLM_BASE_URL: http://litellm:4000
   LITELLM_MASTER_KEY: sk-local-master-key
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   MCP_ACCOUNTS_URL: http://mcp-accounts:8081/mcp
   MCP_TRANSACTIONS_URL: http://mcp-transactions:8082/mcp
   MCP_SERVICE_URL: http://mcp-service:8083/mcp
   OTEL_ENABLED: "true"
   OTEL_ENDPOINT: http://otel-collector:4317
+  JAEGER_QUERY_URL: http://jaeger:16686
   DEV_AUTH_BYPASS: "true"
 
 services:
@@ -109,6 +111,7 @@ services:
       LITELLM_MASTER_KEY: sk-local-master-key
       DATABASE_URL: postgresql://banking:banking@postgres:5432/banking
       STORE_MODEL_IN_DB: "false"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports: ["4000:4000"]
     volumes:
       - ./infra/litellm/config.yaml:/app/config.yaml:ro

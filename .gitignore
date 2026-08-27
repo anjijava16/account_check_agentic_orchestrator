@@ -95,3 +95,6 @@ Thumbs.db
 *.bak
 *.tmp
 node_modules/
+
+# ---- Agent session logs (may contain secrets) ----
+.monocle/

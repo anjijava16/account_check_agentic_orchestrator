@@ -131,6 +131,7 @@ class AppSettings(BaseSettings):
     otel_enabled: bool = True
     otel_endpoint: str = "http://localhost:4317"
     otel_service_name: str = "agentic-banking-platform"
+    jaeger_query_url: str = "http://localhost:16686"
     log_level: str = "INFO"
     log_json: bool = True
     metrics_path: str = "/metrics"

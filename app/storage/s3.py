@@ -154,6 +154,24 @@ class ObjectStore:
         except ClientError:
             return None
 
+    async def list_objects(
+        self, *, prefix: str = "", bucket: str | None = None, max_keys: int = 100
+    ) -> list[dict[str, Any]]:
+        bucket = bucket or settings.s3_raw_bucket
+        async with self._client() as client:
+            response = await client.list_objects_v2(
+                Bucket=bucket, Prefix=prefix, MaxKeys=max_keys
+            )
+        return [
+            {
+                "key": item["Key"],
+                "size_bytes": item["Size"],
+                "last_modified": item["LastModified"].isoformat(),
+                "etag": item.get("ETag", "").strip('"'),
+            }
+            for item in response.get("Contents", [])
+        ]
+
 
 def sha256_of(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()

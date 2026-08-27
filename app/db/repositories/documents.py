@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +28,14 @@ class DocumentRepository:
         if tenant_id:
             stmt = stmt.where(Document.tenant_id == tenant_id)
         return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def delete(self, document_id: uuid.UUID, tenant_id: str | None = None) -> bool:
+        """Delete a document; chunks/events cascade via FK ondelete."""
+        stmt = delete(Document).where(Document.id == document_id)
+        if tenant_id:
+            stmt = stmt.where(Document.tenant_id == tenant_id)
+        result = await self.session.execute(stmt)
+        return bool(result.rowcount)
 
     async def find_by_hash(self, tenant_id: str, sha256: str) -> Document | None:
         stmt = select(Document).where(

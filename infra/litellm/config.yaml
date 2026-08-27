@@ -6,11 +6,12 @@
 
 model_list:
   # ------------------------------------------------------- self-hosted (vLLM)
+  # LOCAL DEV: the internal vLLM/TEI fleet isn't running, so the logical names
+  # below are mapped to OpenAI. Restore the os.environ/VLLM_* mapping for prod.
   - model_name: self-hosted-llama-70b
     litellm_params:
-      model: openai/llama-3.3-70b-instruct
-      api_base: os.environ/VLLM_70B_BASE_URL
-      api_key: os.environ/VLLM_API_KEY
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
       rpm: 1200
       tpm: 900000
     model_info:
@@ -21,9 +22,8 @@ model_list:
 
   - model_name: self-hosted-llama-8b
     litellm_params:
-      model: openai/llama-3.1-8b-instruct
-      api_base: os.environ/VLLM_8B_BASE_URL
-      api_key: os.environ/VLLM_API_KEY
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
       rpm: 6000
       tpm: 3000000
     model_info:
@@ -34,9 +34,9 @@ model_list:
   # ------------------------------------------------ self-hosted (TEI) vectors
   - model_name: self-hosted-bge-large
     litellm_params:
-      model: openai/bge-large-en-v1.5
-      api_base: os.environ/TEI_EMBEDDING_BASE_URL
-      api_key: os.environ/TEI_API_KEY
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+      dimensions: 1024
     model_info:
       mode: embedding
       deployment: self_hosted
