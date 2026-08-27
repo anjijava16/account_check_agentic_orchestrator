@@ -13,6 +13,7 @@ x-app-env: &app-env
   S3_ENDPOINT_URL: http://minio:9000
   S3_ACCESS_KEY: minioadmin
   S3_SECRET_KEY: minioadmin
+  S3_SSE_ENABLED: "false"
   LITELLM_BASE_URL: http://litellm:4000
   LITELLM_MASTER_KEY: sk-local-master-key
   MCP_ACCOUNTS_URL: http://mcp-accounts:8081/mcp
@@ -186,7 +187,7 @@ services:
     depends_on: [jaeger]
 
   jaeger:
-    image: jaegertracing/all-in-one:1.62
+    image: jaegertracing/all-in-one:1.62.0
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports: ["16686:16686"]

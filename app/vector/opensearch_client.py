@@ -10,6 +10,7 @@ from typing import Any
 
 from opensearchpy import AsyncHttpConnection, AsyncOpenSearch
 from opensearchpy.exceptions import NotFoundError as OSNotFound
+from opensearchpy.exceptions import RequestError as OSRequestError
 
 from app.core.config import settings
 from app.core.exceptions import VectorStoreError
@@ -76,8 +77,13 @@ async def ensure_index(version: int = 1, *, alias: str | None = None) -> str:
     index = f"{settings.opensearch_index_prefix}{version}"
     try:
         if not await client.indices.exists(index=index):
-            await client.indices.create(index=index, body=build_index_body())
-            log.info("opensearch.index_created", index=index)
+            try:
+                await client.indices.create(index=index, body=build_index_body())
+                log.info("opensearch.index_created", index=index)
+            except OSRequestError as exc:
+                # Another worker created it first -- benign race on startup.
+                if exc.error != "resource_already_exists_exception":
+                    raise
         if not await client.indices.exists_alias(name=alias):
             await client.indices.put_alias(index=index, name=alias)
             log.info("opensearch.alias_created", alias=alias, index=index)

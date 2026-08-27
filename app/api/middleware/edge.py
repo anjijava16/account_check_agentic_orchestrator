@@ -151,15 +151,31 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    # Swagger UI / ReDoc pull JS+CSS from jsdelivr and a favicon from fastapi.tiangolo.com;
+    # the strict default-src 'none' policy would blank the page, so relax CSP on those routes.
+    _DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
+    _DOCS_CSP = (
+        "default-src 'none'; "
+        "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+        "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+        "img-src 'self' https://fastapi.tiangolo.com data:; "
+        "worker-src 'self' blob:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'"
+    )
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
+        is_docs = request.url.path in self._DOCS_PATHS
         response.headers.update(
             {
                 "X-Content-Type-Options": "nosniff",
                 "X-Frame-Options": "DENY",
                 "Referrer-Policy": "no-referrer",
                 "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
-                "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+                "Content-Security-Policy": (
+                    self._DOCS_CSP if is_docs else "default-src 'none'; frame-ancestors 'none'"
+                ),
                 "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
             }
         )

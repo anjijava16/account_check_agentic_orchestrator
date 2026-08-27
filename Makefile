@@ -123,4 +123,4 @@ index: ## Create/verify the OpenSearch index
 
 .PHONY: token
 token: ## Print a local dev bearer token
-	@python scripts/make_token.py
+	@PYTHONPATH=. python scripts/make_token.py

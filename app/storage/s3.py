@@ -89,11 +89,12 @@ class ObjectStore:
             "ContentType": content_type,
             "Metadata": {k: str(v)[:1024] for k, v in (metadata or {}).items()},
         }
-        if settings.s3_sse_kms_key_id:
-            extra["ServerSideEncryption"] = "aws:kms"
-            extra["SSEKMSKeyId"] = settings.s3_sse_kms_key_id
-        else:
-            extra["ServerSideEncryption"] = "AES256"
+        if settings.s3_sse_enabled:
+            if settings.s3_sse_kms_key_id:
+                extra["ServerSideEncryption"] = "aws:kms"
+                extra["SSEKMSKeyId"] = settings.s3_sse_kms_key_id
+            else:
+                extra["ServerSideEncryption"] = "AES256"
 
         try:
             async with self._client() as client:

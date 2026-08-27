@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Multi-stage build. The runtime image carries no compiler and runs unprivileged.
 
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm AS builder
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -17,10 +17,11 @@ COPY app ./app
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --upgrade pip setuptools wheel && pip install .
+# setuptools >=81 drops pkg_resources, which litellm still imports at runtime.
+RUN pip install --upgrade pip "setuptools<81" wheel && pip install .
 
 # ---------------------------------------------------------------- runtime
-FROM python:3.11-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
@@ -30,7 +31,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 curl tini \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd -r banking && useradd -r -g banking -u 10001 banking
+    && groupadd -r banking && useradd -r -g banking -u 10001 -m -d /home/banking banking
 
 COPY --from=builder /opt/venv /opt/venv
 

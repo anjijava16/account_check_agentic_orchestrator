@@ -2,7 +2,7 @@
 name = "agentic-banking-platform"
 version = "1.0.0"
 description = "Production-grade multi-agent banking assistant: LangGraph core, MCP tool servers, LiteLLM gateway, OpenSearch + pgvector retrieval, Redis session store, full observability."
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 readme = "README.md"
 
 dependencies = [
@@ -25,7 +25,9 @@ dependencies = [
   "fastmcp>=2.0.0",
 
   # --- Model gateway ---
-  "litellm[proxy]>=1.55.0",
+  # Library only; the LiteLLM proxy runs as its own container, and its [proxy]
+  # extra pins uvicorn/gunicorn to versions that conflict with the API server.
+  "litellm>=1.51.0",
   "tiktoken>=0.8.0",
 
   # --- Storage ---

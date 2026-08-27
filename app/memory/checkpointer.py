@@ -23,10 +23,21 @@ async def checkpointer_lifespan():
     global _checkpointer
     if settings.checkpointer == "postgres":
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        from psycopg.errors import DuplicateObject, UniqueViolation
 
         conn_str = settings.postgres_sync_dsn.replace("postgresql+psycopg", "postgresql")
         async with AsyncPostgresSaver.from_conn_string(conn_str) as saver:
-            await saver.setup()
+            # Serialize setup across concurrent workers -- IF NOT EXISTS does not
+            # protect against two processes running the same DDL at once.
+            async with saver.conn.cursor() as cur:
+                await cur.execute("SELECT pg_advisory_lock(982451653)")
+            try:
+                await saver.setup()
+            except (UniqueViolation, DuplicateObject):
+                log.info("checkpointer.setup_already_done")
+            finally:
+                async with saver.conn.cursor() as cur:
+                    await cur.execute("SELECT pg_advisory_unlock(982451653)")
             _checkpointer = saver
             log.info("checkpointer.ready", backend="postgres")
             yield saver

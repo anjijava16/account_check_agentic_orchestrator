@@ -82,6 +82,8 @@ class AppSettings(BaseSettings):
     s3_processed_bucket: str = "banking-processed-documents"
     s3_presign_ttl_seconds: int = 900
     s3_sse_kms_key_id: str | None = None
+    # MinIO without a configured KMS rejects any SSE header; disable for local dev.
+    s3_sse_enabled: bool = True
 
     # -------------------------------------------------------------- litellm
     litellm_base_url: str = "http://localhost:4000"
