@@ -154,7 +154,7 @@ Local auth bypass is on (`DEV_AUTH_BYPASS=true`, non-prod), so you can mint a to
 
 ```bash
 uv run python scripts/make_token.py
-# with a role:
+# with a role (needed for the /services/* operator endpoints in section 7):
 uv run python scripts/make_token.py --sub ops.user --roles customer,agent_operator
 ```
 
@@ -214,7 +214,169 @@ uv run pytest tests/integration -v -m integration  # needs the stack running
 
 ---
 
-## 7. Common issues
+## 7. Service routers (operator API) — testing commands
+
+The platform exposes per-service admin/CRUD routers under `/api/v1/services/*`.
+Most require the **`agent_operator`** role; a few (`security/token`, `tiktoken`,
+`agents`) need only an authenticated token.
+
+> These run inside the image (`pip install .`). After changing router code,
+> rebuild: `docker compose up -d --build api`.
+
+**Get an operator token once and reuse it:**
+
+```bash
+export OP_TOKEN=$(uv run python scripts/make_token.py --roles customer,agent_operator)
+alias acurl='curl -s -H "Authorization: Bearer $OP_TOKEN"'
+```
+
+| Router | Role |
+|---|---|
+| `postgres`, `redis`, `opensearch`, `storage`, `traces`, `mcp`, `llm`, `litellm`, `observability`, `docling` | `agent_operator` |
+| `security/token`, `tiktoken`, `agents` | any authenticated user |
+
+### 7.1 Postgres — documents CRUD
+
+```bash
+# Create
+acurl -X POST localhost:8000/api/v1/services/postgres/documents \
+  -H 'Content-Type: application/json' \
+  -d '{"filename":"terms.md","content_type":"text/markdown","size_bytes":12,
+       "content_sha256":"abc123def456","s3_bucket":"banking-raw-documents","s3_key":"demo/terms.md"}' | jq
+
+# List / Read / Update / Delete
+acurl localhost:8000/api/v1/services/postgres/documents | jq
+acurl localhost:8000/api/v1/services/postgres/documents/<id> | jq
+acurl -X PATCH localhost:8000/api/v1/services/postgres/documents/<id> \
+  -H 'Content-Type: application/json' -d '{"status":"completed"}' | jq
+acurl -X DELETE localhost:8000/api/v1/services/postgres/documents/<id> | jq
+```
+
+### 7.2 Redis — key/value CRUD
+
+```bash
+acurl -X POST localhost:8000/api/v1/services/redis/keys \
+  -H 'Content-Type: application/json' -d '{"key":"demo:1","value":"hello","ttl_seconds":300}' | jq
+acurl localhost:8000/api/v1/services/redis/keys/demo:1 | jq
+acurl -X PUT localhost:8000/api/v1/services/redis/keys/demo:1 \
+  -H 'Content-Type: application/json' -d '{"value":"updated"}' | jq
+acurl 'localhost:8000/api/v1/services/redis/keys?pattern=demo:*' | jq
+acurl -X DELETE localhost:8000/api/v1/services/redis/keys/demo:1 | jq
+acurl localhost:8000/api/v1/services/redis/_info | jq
+```
+
+### 7.3 OpenSearch — document CRUD + search
+
+```bash
+acurl localhost:8000/api/v1/services/opensearch/indices | jq
+acurl -X POST localhost:8000/api/v1/services/opensearch/kb-chunks/docs \
+  -H 'Content-Type: application/json' -d '{"document":{"text":"hello world"},"doc_id":"d1"}' | jq
+acurl localhost:8000/api/v1/services/opensearch/kb-chunks/docs/d1 | jq
+acurl -X PUT localhost:8000/api/v1/services/opensearch/kb-chunks/docs/d1 \
+  -H 'Content-Type: application/json' -d '{"document":{"text":"updated"}}' | jq
+acurl -X POST localhost:8000/api/v1/services/opensearch/kb-chunks/search \
+  -H 'Content-Type: application/json' -d '{"query":{"match_all":{}},"size":5}' | jq
+acurl -X DELETE localhost:8000/api/v1/services/opensearch/kb-chunks/docs/d1 | jq
+```
+
+### 7.4 Object store (MinIO) — object CRUD
+
+```bash
+acurl -X POST 'localhost:8000/api/v1/services/storage/objects?key=demo/hello.txt' \
+  -F 'file=@README.md;type=text/markdown' | jq
+acurl 'localhost:8000/api/v1/services/storage/objects?prefix=demo/' | jq
+acurl 'localhost:8000/api/v1/services/storage/objects/demo/hello.txt/_meta' | jq
+acurl 'localhost:8000/api/v1/services/storage/objects/demo/hello.txt?presign=true' | jq
+acurl -X DELETE localhost:8000/api/v1/services/storage/objects/demo/hello.txt | jq
+```
+
+### 7.5 Traces (Jaeger)
+
+```bash
+acurl localhost:8000/api/v1/services/traces/services | jq
+acurl -X POST localhost:8000/api/v1/services/traces/_test-span | jq
+acurl 'localhost:8000/api/v1/services/traces?service=agentic-banking-platform&limit=10' | jq
+acurl localhost:8000/api/v1/services/traces/<trace_id> | jq
+```
+
+### 7.6 MCP servers
+
+```bash
+acurl localhost:8000/api/v1/services/mcp/servers | jq
+acurl localhost:8000/api/v1/services/mcp/tools | jq
+acurl localhost:8000/api/v1/services/mcp/servers/accounts/tools | jq
+acurl -X POST localhost:8000/api/v1/services/mcp/servers/accounts/tools/get_balance/invoke \
+  -H 'Content-Type: application/json' -d '{"arguments":{}}' | jq
+acurl -X POST localhost:8000/api/v1/services/mcp/reconnect | jq
+```
+
+### 7.7 LLM test bench (in-process gateway)
+
+```bash
+acurl localhost:8000/api/v1/services/llm/models | jq
+acurl -X POST localhost:8000/api/v1/services/llm/complete \
+  -H 'Content-Type: application/json' -d '{"prompt":"Say hi in 3 words"}' | jq
+acurl -X POST localhost:8000/api/v1/services/llm/embed \
+  -H 'Content-Type: application/json' -d '{"texts":["hello","world"]}' | jq
+```
+
+### 7.8 LiteLLM proxy (container passthrough)
+
+```bash
+acurl localhost:8000/api/v1/services/litellm/models | jq
+acurl localhost:8000/api/v1/services/litellm/health | jq
+acurl -X POST localhost:8000/api/v1/services/litellm/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"self-hosted-llama-70b","messages":[{"role":"user","content":"ping"}]}' | jq
+```
+
+### 7.9 Security — token info + mint (dev only)
+
+```bash
+acurl localhost:8000/api/v1/services/security/token | jq
+acurl -X POST localhost:8000/api/v1/services/security/token \
+  -H 'Content-Type: application/json' -d '{"roles":["customer","agent_operator"]}' | jq
+```
+
+### 7.10 tiktoken (any authenticated token)
+
+```bash
+acurl -X POST localhost:8000/api/v1/services/tiktoken/count \
+  -H 'Content-Type: application/json' -d '{"text":"count these tokens"}' | jq
+acurl -X POST localhost:8000/api/v1/services/tiktoken/encode \
+  -H 'Content-Type: application/json' -d '{"text":"hello"}' | jq
+acurl -X POST localhost:8000/api/v1/services/tiktoken/decode \
+  -H 'Content-Type: application/json' -d '{"tokens":[15339]}' | jq
+acurl localhost:8000/api/v1/services/tiktoken/encodings | jq
+```
+
+### 7.11 Agents info
+
+```bash
+acurl localhost:8000/api/v1/services/agents | jq
+acurl localhost:8000/api/v1/services/agents/graph | jq
+acurl localhost:8000/api/v1/services/agents/service | jq
+```
+
+### 7.12 Observability
+
+```bash
+acurl localhost:8000/api/v1/services/observability/resources | jq
+acurl localhost:8000/api/v1/services/observability/config | jq
+acurl localhost:8000/api/v1/services/observability/metrics-names | jq
+```
+
+### 7.13 Docling / parser experiments
+
+```bash
+acurl localhost:8000/api/v1/services/docling/status | jq
+acurl -X POST localhost:8000/api/v1/services/docling/parse \
+  -F 'file=@README.md;type=text/markdown' | jq
+```
+
+---
+
+## 8. Common issues
 
 | Symptom | Fix |
 |---|---|
@@ -228,7 +390,7 @@ uv run pytest tests/integration -v -m integration  # needs the stack running
 
 ---
 
-## 8. Shut down
+## 9. Shut down
 
 ```bash
 # Option B: stop host processes (Ctrl-C in each terminal), then stop infra:
